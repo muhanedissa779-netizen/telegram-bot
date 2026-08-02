@@ -80,10 +80,8 @@ def register(user, referrer_id=None):
             "referred_by": referrer_id
         }
         
-        # Haddii uu isticmaale cusub ku yimid linkiga qof kale, u diiwaangeli
         if referrer_id and referrer_id in data and referrer_id != uid:
-            data[referrer_id]["referrals_count"] += data[referrer_id].get("referrals_count", 0) + 1
-            # Halkan waxaad ku dari kartaa bonus haddii aad rabto (tusaale: $1)
+            data[referrer_id]["referrals_count"] = data[referrer_id].get("referrals_count", 0) + 1
             data[referrer_id]["balance"] += 0.50 
 
         save(data)
@@ -95,7 +93,7 @@ def add_profit(uid):
         last_p = data[uid].get("last_profit", now)
         if now - last_p >= 3600:
             hours_passed = (now - last_p) // 3600
-            hourly_rate = 0.20 / 24.0  # Hourly share of the 20% daily return
+            hourly_rate = 0.20 / 24.0
             increment = data[uid]["active_deposit"] * hourly_rate * hours_passed
             data[uid]["balance"] += increment
             data[uid]["profit"] += increment
@@ -127,15 +125,12 @@ def start(message):
 
 def handle_start_background(message):
     uid = str(message.from_user.id)
-    
-    # Hubinta haddii uu isticmaaluhu ku yimid referral link (tusaale: /start 12345678)
     args = message.text.split()
     referrer_id = args[1] if len(args) > 1 else None
 
     register(message.from_user, referrer_id)
     add_profit(uid)
 
-    # Clear any stuck user step when user types /start
     user_step.pop(uid, None)
 
     text = (
@@ -152,7 +147,7 @@ def handle_start_background(message):
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
-# --- ADMIN BROADCAST COMMAND (/broadcast Fariintaada) ---
+# --- ADMIN BROADCAST COMMAND (/broadcast) ---
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
     if str(message.from_user.id) != str(ADMIN_ID):
@@ -160,7 +155,7 @@ def broadcast_message(message):
     
     text_parts = message.text.split(maxsplit=1)
     if len(text_parts) < 2:
-        bot.reply_to(message, "⚠️ Fadlan soo raaci fariinta aad rabto inaad dirto. Tusaale:\n`/broadcast Salaan dhammaan...`", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ Fadlan soo raaci fariinta: `/broadcast Salaan...`", parse_mode="Markdown")
         return
     
     broadcast_text = text_parts[1]
@@ -174,12 +169,35 @@ def broadcast_message(message):
         try:
             bot.send_message(int(uid), f"📢 *Ogeysiis Maamulka*\n\n{broadcast_text}", parse_mode="Markdown")
             success_count += 1
-            time.sleep(0.1) # Si aanu Telegram-ku u xidhin bot-ka (Flood control)
+            time.sleep(0.1)
         except Exception:
             fail_count += 1
 
     bot.send_message(message.chat.id, f"✅ *Broadcast waa la dhammeeyay!*\n\n• Si guul leh ay u gaadhay: `{success_count}`\n• Way ku guuldareysatay: `{fail_count}`", parse_mode="Markdown")
 
+# --- ADMIN USERS LIST COMMAND (/stats) ---
+@bot.message_handler(commands=["stats"])
+def admin_stats(message):
+    if str(message.from_user.id) != str(ADMIN_ID):
+        return
+    
+    data = load()
+    total_users = len(data)
+    
+    stats_text = f"📊 *ADMIN DASHBOARD - USERS STATS*\n\n👥 Total Users: `{total_users}`\n\n*List of Recent Users:*\n"
+    
+    # Soo bandhig 20-kii qof ee ugu dambeeyay ee soo biiray
+    count = 0
+    for uid, info in list(data.items())[-20:]:
+        count += 1
+        stats_text += f"{count}. {info['name']} (`{uid}`) | Bal: ${info['balance']:.2f}\n"
+
+    if total_users > 20:
+        stats_text += f"\n_iyo dad kale oo {total_users - 20} ah..._"
+
+    bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
+
+# --- SINGLE MASTER MESSAGE HANDLER (Prevents conflicts & lost photos) ---
 @bot.message_handler(content_types=['photo', 'text', 'document', 'video', 'audio', 'sticker'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
@@ -196,15 +214,13 @@ def process_message_thread(message):
 
     text = message.text if message.text else ""
 
-    # If user clicks any main menu button, clear active deposit step so they don't get trapped
     if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
         user_step.pop(uid, None)
 
-    # Update hourly profit calculation on any interaction
     add_profit(uid)
     data = load()
 
-    # --- STRICT CHECK: WAITING ONLY FOR TRANSACTION SCREENSHOT ---
+    # --- WAITING FOR SCREENSHOT CHECK ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             screenshot = message.photo[-1].file_id
@@ -256,7 +272,7 @@ def process_message_thread(message):
             )
             return
 
-    # --- ISOLATED MENU ROUTING TO PREVENT OVERLAPS ---
+    # --- MENU ROUTING ---
     if text == "👤 My Profile":
         user = data[uid]
         lock_status = "Unlocked ✅"
