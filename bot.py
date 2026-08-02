@@ -8,7 +8,7 @@ from flask import Flask
 import threading
 
 TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
-ADMIN_ID = "5738022147"
+ADMIN_ID = 5738022147  # Waxaa laga dhigay Integer si uu si sax ah u aqoonsado admin-ka
 
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
@@ -150,7 +150,7 @@ def handle_start_background(message):
 # --- ADMIN BROADCAST COMMAND (/broadcast) ---
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
-    if str(message.from_user.id) != str(ADMIN_ID):
+    if message.from_user.id != ADMIN_ID:
         return
     
     text_parts = message.text.split(maxsplit=1)
@@ -175,29 +175,29 @@ def broadcast_message(message):
 
     bot.send_message(message.chat.id, f"✅ *Broadcast waa la dhammeeyay!*\n\n• Si guul leh ay u gaadhay: `{success_count}`\n• Way ku guuldareysatay: `{fail_count}`", parse_mode="Markdown")
 
-# --- ADMIN USERS LIST COMMAND (/stats) ---
+# --- ADMIN USERS LIST & STATS COMMAND (/stats) ---
 @bot.message_handler(commands=["stats"])
 def admin_stats(message):
-    if str(message.from_user.id) != str(ADMIN_ID):
+    if message.from_user.id != ADMIN_ID:
         return
     
     data = load()
     total_users = len(data)
     
-    stats_text = f"📊 *ADMIN DASHBOARD - USERS STATS*\n\n👥 Total Users: `{total_users}`\n\n*List of Recent Users:*\n"
+    stats_text = f"📊 *ADMIN DASHBOARD - USERS STATS*\n\n👥 Total Users: `{total_users}`\n\n*Liiska Dadka Kusoo Biiray:*\n"
     
-    # Soo bandhig 20-kii qof ee ugu dambeeyay ee soo biiray
     count = 0
-    for uid, info in list(data.items())[-20:]:
+    for uid, info in data.items():
         count += 1
         stats_text += f"{count}. {info['name']} (`{uid}`) | Bal: ${info['balance']:.2f}\n"
-
-    if total_users > 20:
-        stats_text += f"\n_iyo dad kale oo {total_users - 20} ah..._"
+        # Si aanu fariinta u buuxin haddii ay dad badani joogaan, waxaa la soo bandhigayaa ilaa 50 qof
+        if count >= 50:
+            stats_text += f"\n_...iyo dad kale oo dheeraad ah._"
+            break
 
     bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
 
-# --- SINGLE MASTER MESSAGE HANDLER (Prevents conflicts & lost photos) ---
+# --- SINGLE MASTER MESSAGE HANDLER ---
 @bot.message_handler(content_types=['photo', 'text', 'document', 'video', 'audio', 'sticker'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
@@ -259,7 +259,7 @@ def process_message_thread(message):
                 f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
             try:
-                bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+                bot.send_photo(ADMIN_ID, screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
             except Exception as e:
                 print(f"Error sending to admin: {e}")
 
@@ -484,7 +484,7 @@ def callback_confirm(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_actions(call):
-    if str(call.from_user.id) != str(ADMIN_ID):
+    if call.from_user.id != ADMIN_ID:
         bot.answer_callback_query(call.id, "❌ Unauthorized Action!", show_alert=True)
         return
 
