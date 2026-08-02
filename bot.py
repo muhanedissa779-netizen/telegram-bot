@@ -13,7 +13,6 @@ ADMIN_ID = 5738022147
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
 
-# ThreadPool for fast concurrent user responses
 executor = ThreadPoolExecutor(max_workers=50)
 
 BANNER_IMAGE = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=600"
@@ -27,7 +26,6 @@ WALLETS = {
 INVESTMENT_PLANS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 user_step = {}
 
-# --- FLASK WEB SERVER FOR RENDER WEB SERVICE PORT BINDING ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -37,7 +35,6 @@ def home():
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-# ------------------------------------------------------------
 
 def load():
     if not os.path.exists(DB) or os.path.getsize(DB) == 0:
@@ -194,27 +191,29 @@ def process_message_thread(message):
                 f"🆔 Telegram User ID: `{uid}`\n"
                 f"💵 Amount: ${amount}\n"
                 f"💳 Network: {network}\n\n"
-                f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
+                f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully."
             )
             
-            # Dirista fariinta admin-ka oo loo hubiyay qaab sugan
+            # Dirista fariinta adigoo hubinaya laba qaab (Sawir ama Qoraal haddii sawirku diido)
+            sent_to_admin = False
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-                print("Deposit receipt successfully sent to admin.")
+                sent_to_admin = True
             except Exception as e:
                 print(f"Error sending photo to admin: {e}")
-                # Haddii sawirku diido, wuxuu isku dayayaa inuu ugu yaraan fariin qoraal ah soo diro
+
+            if not sent_to_admin:
                 try:
-                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii wuu cilladaysnaa ama lama soo diri karo, fadlan hubi)*", parse_mode="Markdown", reply_markup=admin_kb)
+                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii lama soo dari karin, fadlan xaqiiji isticmaalaha)*", parse_mode="Markdown", reply_markup=admin_kb)
                 except Exception as err:
-                    print(f"Failed to send text fallback to admin: {err}")
+                    print(f"Failed to send fallback text to admin: {err}")
 
             user_step.pop(uid, None)
             return
         else:
             bot.send_message(
                 message.chat.id,
-                "❌ *Invalid Submission!*\n\nYou must upload a valid transaction **Screenshot** image. Text, documents, or other media are strictly blocked until a proper receipt is provided."
+                "❌ *Invalid Submission!*\n\nYou must upload a valid transaction **Screenshot** image."
             )
             return
 
@@ -255,7 +254,7 @@ def process_message_thread(message):
     elif text == "📈 Mining":
         bot.send_message(
             message.chat.id,
-            "⛏ *Mining Dashboard*\n\nYour active deposit generates a 20% daily return distributed and updated automatically **every hour**. Earnings are securely locked for 7 days.",
+            "⛏ *Mining Dashboard*\n\nYour active deposit generates a 20% daily return distributed and updated automatically **every hour**.",
             parse_mode="Markdown",
             reply_markup=main_reply_menu()
         )
@@ -270,14 +269,14 @@ def process_message_thread(message):
         if elapsed < (7 * 86400):
             days_left = ((7 * 86400) - elapsed) // 86400
             hours_left = (((7 * 86400) - elapsed) % 86400) // 3600
-            bot.send_message(message.chat.id, f"❌ *Withdrawal Locked!*\n\nPer platform policy, withdrawals are strictly locked until **7 full days** have elapsed from your deposit time.\n\n⏳ Time remaining: *{days_left} days and {hours_left} hours*.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, f"❌ *Withdrawal Locked!*\n\nTime remaining: *{days_left} days and {hours_left} hours*.", parse_mode="Markdown", reply_markup=main_reply_menu())
         else:
-            bot.send_message(message.chat.id, "💸 *Withdrawal Unlocked*\n\nYour 7-day lock period has successfully completed. Processing your payout request...", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, "💸 *Withdrawal Unlocked*\n\nYour 7-day lock period has successfully completed.", parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "📜 History":
         history = data[uid].get("history", [])
         if not history:
-            bot.send_message(message.chat.id, "📜 *Transaction History*\n\nNo deposit records found on your account yet.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, "📜 *Transaction History*\n\nNo deposit records found.", parse_mode="Markdown", reply_markup=main_reply_menu())
         else:
             hist_text = "📜 *Deposit History Records*\n\n"
             for i in history:
@@ -287,7 +286,7 @@ def process_message_thread(message):
     elif text == "🎁 Referral":
         bot.send_message(
             message.chat.id,
-            "🎁 *Referral Program*\n\nComing Soon! Stay tuned for our upcoming affiliate rewards system.",
+            "🎁 *Referral Program*\n\nComing Soon!",
             parse_mode="Markdown",
             reply_markup=main_reply_menu()
         )
@@ -295,22 +294,19 @@ def process_message_thread(message):
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Mohaned017087"))
-        support_txt = (
-            "🛠 *CUSTOMER SUPPORT*\n\n"
-            "If you experience any transaction delays or account inquiries, please click the button below to reach out to our official support administration."
-        )
+        support_txt = "🛠 *CUSTOMER SUPPORT*\n\nClick the button below to reach out to our official support administration."
         bot.send_message(message.chat.id, support_txt, parse_mode="Markdown", reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
 def callback_back_menu(call):
     uid = str(call.from_user.id)
     user_step.pop(uid, None)
-    bot.answer_callback_query(call.id, "Cancelled deposit process.")
+    bot.answer_callback_query(call.id, "Cancelled.")
     try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="❌ *Deposit Cancelled.*\n\nYou have returned to the main menu. Choose an option below:",
+            text="❌ *Deposit Cancelled.*\n\nYou have returned to the main menu.",
             parse_mode="Markdown"
         )
     except Exception:
@@ -380,7 +376,7 @@ def callback_plan(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=f"📌 *Investment Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Deposit Wallet Address:*\n`{wallet_address}`\n\n*Instructions:* After transferring the exact amount from your personal wallet, click the button below to submit your payment proof.",
+        text=f"📌 *Investment Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Deposit Wallet Address:*\n`{wallet_address}`\n\n*Instructions:* After transferring the exact amount, click the button below to submit your payment proof.",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -418,7 +414,7 @@ def callback_confirm(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="📸 *Payment Verification Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here in the chat. Unrelated images or text messages are strictly restricted until a valid receipt is submitted.",
+        text="📸 *Payment Verification Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here in the chat.",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -464,8 +460,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                f"🎉 *Deposit Approved Successfully!* 🚀\n\n"
-                f"Your deposit of ${amount} has been verified and processed by our finance team. Your balance and active deposit have been updated.",
+                f"🎉 *Deposit Approved Successfully!* 🚀\n\nYour deposit of ${amount} has been verified and processed.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
@@ -492,7 +487,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                "❌ *Deposit Request Rejected*\n\nYour transaction receipt was flagged as invalid, blurry, or fake. Please submit a genuine and clear payment screenshot.",
+                "❌ *Deposit Request Rejected*\n\nYour transaction receipt was flagged as invalid or fake.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
