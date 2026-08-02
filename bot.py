@@ -8,7 +8,7 @@ from flask import Flask
 import threading
 
 TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
-ADMIN_ID = 5738022147  # Waxaa laga dhigay Integer si uu si sax ah u aqoonsado admin-ka
+ADMIN_ID = "5738022147"
 
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
@@ -62,7 +62,7 @@ def save(data):
     except Exception:
         pass
 
-def register(user, referrer_id=None):
+def register(user):
     data = load()
     uid = str(user.id)
     if uid not in data:
@@ -75,15 +75,8 @@ def register(user, referrer_id=None):
             "history": [],
             "deposit_time": 0,
             "last_profit": int(time.time()),
-            "status": "No Deposit",
-            "referrals_count": 0,
-            "referred_by": referrer_id
+            "status": "No Deposit"
         }
-        
-        if referrer_id and referrer_id in data and referrer_id != uid:
-            data[referrer_id]["referrals_count"] = data[referrer_id].get("referrals_count", 0) + 1
-            data[referrer_id]["balance"] += 0.50 
-
         save(data)
 
 def add_profit(uid):
@@ -93,7 +86,7 @@ def add_profit(uid):
         last_p = data[uid].get("last_profit", now)
         if now - last_p >= 3600:
             hours_passed = (now - last_p) // 3600
-            hourly_rate = 0.20 / 24.0
+            hourly_rate = 0.20 / 24.0  # Hourly share of the 20% daily return
             increment = data[uid]["active_deposit"] * hourly_rate * hours_passed
             data[uid]["balance"] += increment
             data[uid]["profit"] += increment
@@ -125,12 +118,10 @@ def start(message):
 
 def handle_start_background(message):
     uid = str(message.from_user.id)
-    args = message.text.split()
-    referrer_id = args[1] if len(args) > 1 else None
-
-    register(message.from_user, referrer_id)
+    register(message.from_user)
     add_profit(uid)
 
+    # Clear any stuck user step when user types /start
     user_step.pop(uid, None)
 
     text = (
@@ -147,57 +138,6 @@ def handle_start_background(message):
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
-# --- ADMIN BROADCAST COMMAND (/broadcast) ---
-@bot.message_handler(commands=["broadcast"])
-def broadcast_message(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    text_parts = message.text.split(maxsplit=1)
-    if len(text_parts) < 2:
-        bot.reply_to(message, "⚠️ Fadlan soo raaci fariinta: `/broadcast Salaan...`", parse_mode="Markdown")
-        return
-    
-    broadcast_text = text_parts[1]
-    data = load()
-    success_count = 0
-    fail_count = 0
-
-    bot.reply_to(message, "⏳ Waxaa socda dirista fariinta...")
-
-    for uid in data:
-        try:
-            bot.send_message(int(uid), f"📢 *Ogeysiis Maamulka*\n\n{broadcast_text}", parse_mode="Markdown")
-            success_count += 1
-            time.sleep(0.1)
-        except Exception:
-            fail_count += 1
-
-    bot.send_message(message.chat.id, f"✅ *Broadcast waa la dhammeeyay!*\n\n• Si guul leh ay u gaadhay: `{success_count}`\n• Way ku guuldareysatay: `{fail_count}`", parse_mode="Markdown")
-
-# --- ADMIN USERS LIST & STATS COMMAND (/stats) ---
-@bot.message_handler(commands=["stats"])
-def admin_stats(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    data = load()
-    total_users = len(data)
-    
-    stats_text = f"📊 *ADMIN DASHBOARD - USERS STATS*\n\n👥 Total Users: `{total_users}`\n\n*Liiska Dadka Kusoo Biiray:*\n"
-    
-    count = 0
-    for uid, info in data.items():
-        count += 1
-        stats_text += f"{count}. {info['name']} (`{uid}`) | Bal: ${info['balance']:.2f}\n"
-        # Si aanu fariinta u buuxin haddii ay dad badani joogaan, waxaa la soo bandhigayaa ilaa 50 qof
-        if count >= 50:
-            stats_text += f"\n_...iyo dad kale oo dheeraad ah._"
-            break
-
-    bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
-
-# --- SINGLE MASTER MESSAGE HANDLER ---
 @bot.message_handler(content_types=['photo', 'text', 'document', 'video', 'audio', 'sticker'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
@@ -212,15 +152,17 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    text = message.text if message.text else ""
+    text = message.text
 
+    # If user clicks any main menu button, clear active deposit step so they don't get trapped
     if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
         user_step.pop(uid, None)
 
+    # Update hourly profit calculation on any interaction
     add_profit(uid)
     data = load()
 
-    # --- WAITING FOR SCREENSHOT CHECK ---
+    # --- STRICT CHECK: WAITING ONLY FOR TRANSACTION SCREENSHOT ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             screenshot = message.photo[-1].file_id
@@ -259,7 +201,7 @@ def process_message_thread(message):
                 f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
             try:
-                bot.send_photo(ADMIN_ID, screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+                bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
             except Exception as e:
                 print(f"Error sending to admin: {e}")
 
@@ -272,7 +214,7 @@ def process_message_thread(message):
             )
             return
 
-    # --- MENU ROUTING ---
+    # --- ISOLATED MENU ROUTING TO PREVENT OVERLAPS ---
     if text == "👤 My Profile":
         user = data[uid]
         lock_status = "Unlocked ✅"
@@ -292,7 +234,6 @@ def process_message_thread(message):
             f"💵 Active Deposit: ${user['active_deposit']:.2f}\n"
             f"📈 Total Profit: ${user['profit']:.2f}\n"
             f"⏳ Status: {user['status']}\n"
-            f"👥 Referrals: {user.get('referrals_count', 0)} users\n"
             f"🔐 Withdrawal Lock: {lock_status}"
         )
         bot.send_message(message.chat.id, txt, parse_mode="Markdown", reply_markup=main_reply_menu())
@@ -340,16 +281,12 @@ def process_message_thread(message):
             bot.send_message(message.chat.id, hist_text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "🎁 Referral":
-        bot_info = bot.get_me()
-        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
-        ref_text = (
-            "🎁 *Referral Program*\n\n"
-            "Invite your friends and grow your network! Share your personal referral link below:\n\n"
-            f"`{ref_link}`\n\n"
-            f"👥 Total Referred Users: *{data[uid].get('referrals_count', 0)}*\n"
-            "Earn bonuses for every active investor who joins through your link!"
+        bot.send_message(
+            message.chat.id,
+            "🎁 *Referral Program*\n\nComing Soon! Stay tuned for our upcoming affiliate rewards system.",
+            parse_mode="Markdown",
+            reply_markup=main_reply_menu()
         )
-        bot.send_message(message.chat.id, ref_text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
@@ -484,7 +421,7 @@ def callback_confirm(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_actions(call):
-    if call.from_user.id != ADMIN_ID:
+    if str(call.from_user.id) != str(ADMIN_ID):
         bot.answer_callback_query(call.id, "❌ Unauthorized Action!", show_alert=True)
         return
 
@@ -499,6 +436,7 @@ def admin_actions(call):
 
     if action == "app":
         amount = float(parts[3])
+        # Add to active deposit and accumulate balance permanently without overwriting history
         data[uid]["active_deposit"] += amount
         data[uid]["balance"] += amount
         data[uid]["deposit_time"] = int(time.time())
