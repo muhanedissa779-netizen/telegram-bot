@@ -8,7 +8,7 @@ from flask import Flask
 import threading
 
 TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
-ADMIN_ID = "5738022147"
+ADMIN_ID = 5738022147  # Telegram ID-gaaga saxda ah
 
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
@@ -121,7 +121,6 @@ def handle_start_background(message):
     register(message.from_user)
     add_profit(uid)
 
-    # Clear any stuck user step when user types /start
     user_step.pop(uid, None)
 
     text = (
@@ -154,15 +153,13 @@ def process_message_thread(message):
 
     text = message.text
 
-    # If user clicks any main menu button, clear active deposit step so they don't get trapped
     if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
         user_step.pop(uid, None)
 
-    # Update hourly profit calculation on any interaction
     add_profit(uid)
     data = load()
 
-    # --- STRICT CHECK: WAITING ONLY FOR TRANSACTION SCREENSHOT ---
+    # --- WAITING FOR TRANSACTION SCREENSHOT ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             screenshot = message.photo[-1].file_id
@@ -202,8 +199,9 @@ def process_message_thread(message):
             )
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+                print("Successfully sent deposit screenshot to admin!")
             except Exception as e:
-                print(f"Error sending to admin: {e}")
+                print(f"CRITICAL ERROR: Failed to send screenshot to admin ID {ADMIN_ID}: {e}")
 
             user_step.pop(uid, None)
             return
@@ -214,7 +212,7 @@ def process_message_thread(message):
             )
             return
 
-    # --- ISOLATED MENU ROUTING TO PREVENT OVERLAPS ---
+    # --- MENU ROUTING ---
     if text == "👤 My Profile":
         user = data[uid]
         lock_status = "Unlocked ✅"
@@ -290,7 +288,8 @@ def process_message_thread(message):
 
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("💬 Contact Admin", url=f"tg://user?id={ADMIN_ID}"))
+        # Updated to use your support username directly
+        kb.add(types.InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Mohaned017087"))
         support_txt = (
             "🛠 *CUSTOMER SUPPORT*\n\n"
             "If you experience any transaction delays or account inquiries, please click the button below to reach out to our official support administration."
@@ -436,7 +435,6 @@ def admin_actions(call):
 
     if action == "app":
         amount = float(parts[3])
-        # Add to active deposit and accumulate balance permanently without overwriting history
         data[uid]["active_deposit"] += amount
         data[uid]["balance"] += amount
         data[uid]["deposit_time"] = int(time.time())
