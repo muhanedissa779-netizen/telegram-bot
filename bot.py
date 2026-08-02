@@ -144,7 +144,7 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    # --- HADDII UU ISTICMAALAHA KU JIRO WAQTIGA SCREENSHOT-KA LAGA SUUSAYAY ---
+    # Step 1: Waiting for payment screenshot from user
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             file_id = message.photo[-1].file_id
@@ -153,21 +153,23 @@ def process_message_thread(message):
             
             bot.send_message(
                 message.chat.id,
-                "📸 Screenshot-ka waa la helay!\n\nFadlan hadda soo dir **Magacaaga Telegram-ka** iyo **User ID-gaaga** (tusaale: `Ahmed, 5738022147` ama qoraal ahaan ugu soo dir).",
+                "📸 *Screenshot Received successfully!*\n\n"
+                "Please now send your **Telegram Name** and **User ID** in a single text message (e.g., `John Doe, 5738022147`) for verification.",
                 parse_mode="Markdown"
             )
             return
         else:
-            bot.send_message(message.chat.id, "❌ Fadlan soo dir **Screenshot-ka** lacag-bixinta (Sawir ahaan).")
+            bot.send_message(message.chat.id, "❌ Please upload the payment receipt **Screenshot** as an image.")
             return
 
+    # Step 2: Waiting for user details (Name & ID) after screenshot
     elif uid in user_step and user_step[uid].get("state") == "waiting_for_details":
         details = message.text
         amount = user_step[uid]["amount"]
         network = user_step[uid]["network"]
         screenshot = user_step[uid].get("screenshot")
 
-        # Kaydi History-ga iyo Status-ka Pending
+        # Save history entry with Pending status
         data[uid]["history"].append({
             "amount": amount,
             "network": network,
@@ -178,12 +180,13 @@ def process_message_thread(message):
 
         bot.send_message(
             message.chat.id,
-            "⏳ *Payment Submitted Successfully!*\n\nFariintaadu waxay gashay *Pending*. Fadlan sug inta u dhaxaysa **10 ilaa 30 daqiiqadood** si uu maamuluhu u xaqiijiyo.",
+            "⏳ *Payment Verification Submitted!*\n\n"
+            "Your transaction is currently **Pending**. Please wait approximately **10 to 30 minutes** while our financial department verifies your transaction.",
             parse_mode="Markdown",
             reply_markup=main_reply_menu()
         )
 
-        # U dir Admin-ka dalabka oo wata Screenshot-ka iyo xogta
+        # Forward professional deposit verification request to Admin
         admin_kb = types.InlineKeyboardMarkup(row_width=2)
         admin_kb.add(
             types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
@@ -191,9 +194,9 @@ def process_message_thread(message):
         )
 
         admin_text = (
-            f"🔔 *NEW DEPOSIT REQUEST (VERIFICATION)*\n\n"
-            f"👤 User Details provided: {details}\n"
-            f"🆔 User ID: `{uid}`\n"
+            f"🔔 *NEW DEPOSIT VERIFICATION REQUEST*\n\n"
+            f"👤 User Provided Details: {details}\n"
+            f"🆔 Telegram User ID: `{uid}`\n"
             f"💵 Amount: ${amount}\n"
             f"💳 Network: {network}"
         )
@@ -202,7 +205,7 @@ def process_message_thread(message):
         except Exception as e:
             print(f"Error sending to admin: {e}")
 
-        # Nadiifi step-ka qofka
+        # Clear temporary user steps
         user_step.pop(uid, None)
         return
 
@@ -323,14 +326,14 @@ def callback_plan(call):
     network = user_step[uid]["network"]
 
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("✅ Confirm Payment (Waiting)", callback_data="confirm_pay"))
+    kb.add(types.InlineKeyboardButton("✅ Confirm Payment", callback_data="confirm_pay"))
 
     wallet_address = WALLETS.get(network, WALLETS["TRC20"])
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=f"📌 *Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Send exact funds to this wallet:*\n`{wallet_address}`\n\n*Terms:* After transferring from your real wallet, click the button below to proceed.",
+        text=f"📌 *Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Send exact funds to this wallet:*\n`{wallet_address}`\n\n*Terms:* After transferring funds from your external wallet, click the button below to submit your payment proof.",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -343,13 +346,13 @@ def callback_confirm(call):
     if uid not in user_step or "amount" not in user_step[uid]:
         user_step[uid] = {"amount": 50, "network": "TRC20"}
 
-    # U beddel xaaladda qofka mid sugaysa screenshot
+    # Set state to wait for screenshot
     user_step[uid]["state"] = "waiting_for_screenshot"
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="📸 *Fadlan soo dir Screenshot-ka* (Sawirka caddaynaya in aad lacagta bixisay) adigoo chat-kan soo gelinaya.",
+        text="📸 *Payment Confirmation Step*\n\nPlease upload and send the **Screenshot** of your transaction receipt right here in the chat.",
         parse_mode="Markdown"
     )
 
@@ -393,7 +396,9 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                f"🎉 *Successfully Approved!*\n\nYour deposit of ${amount} has been verified and approved by Admin. Your balance and active deposit have been updated! 🚀",
+                f"🎉 *Deposit Successfully Approved!* 🚀\n\n"
+                f"Your deposit of ${amount} has been verified and approved by the administrator.\n"
+                f"Your balance and active deposit have been successfully updated!",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
@@ -420,7 +425,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                "❌ *Your Deposit request was cancelled/invalid by Admin.* Please contact support or try again.",
+                "❌ *Your Deposit request was declined or marked invalid by Admin.* Please contact support or try again.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
