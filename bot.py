@@ -132,7 +132,7 @@ def handle_start_background(message):
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(content_types=['photo', 'text'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
 
@@ -143,6 +143,68 @@ def process_message_thread(message):
     if uid not in data:
         register(message.from_user)
         data = load()
+
+    # --- HADDII UU ISTICMAALAHA KU JIRO WAQTIGA SCREENSHOT-KA LAGA SUUSAYAY ---
+    if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
+        if message.content_type == 'photo':
+            file_id = message.photo[-1].file_id
+            user_step[uid]["screenshot"] = file_id
+            user_step[uid]["state"] = "waiting_for_details"
+            
+            bot.send_message(
+                message.chat.id,
+                "📸 Screenshot-ka waa la helay!\n\nFadlan hadda soo dir **Magacaaga Telegram-ka** iyo **User ID-gaaga** (tusaale: `Ahmed, 5738022147` ama qoraal ahaan ugu soo dir).",
+                parse_mode="Markdown"
+            )
+            return
+        else:
+            bot.send_message(message.chat.id, "❌ Fadlan soo dir **Screenshot-ka** lacag-bixinta (Sawir ahaan).")
+            return
+
+    elif uid in user_step and user_step[uid].get("state") == "waiting_for_details":
+        details = message.text
+        amount = user_step[uid]["amount"]
+        network = user_step[uid]["network"]
+        screenshot = user_step[uid].get("screenshot")
+
+        # Kaydi History-ga iyo Status-ka Pending
+        data[uid]["history"].append({
+            "amount": amount,
+            "network": network,
+            "status": "Pending ⏳"
+        })
+        data[uid]["status"] = "Pending ⏳"
+        save(data)
+
+        bot.send_message(
+            message.chat.id,
+            "⏳ *Payment Submitted Successfully!*\n\nFariintaadu waxay gashay *Pending*. Fadlan sug inta u dhaxaysa **10 ilaa 30 daqiiqadood** si uu maamuluhu u xaqiijiyo.",
+            parse_mode="Markdown",
+            reply_markup=main_reply_menu()
+        )
+
+        # U dir Admin-ka dalabka oo wata Screenshot-ka iyo xogta
+        admin_kb = types.InlineKeyboardMarkup(row_width=2)
+        admin_kb.add(
+            types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
+            types.InlineKeyboardButton("❌ Cancel", callback_data=f"adm_can_{uid}")
+        )
+
+        admin_text = (
+            f"🔔 *NEW DEPOSIT REQUEST (VERIFICATION)*\n\n"
+            f"👤 User Details provided: {details}\n"
+            f"🆔 User ID: `{uid}`\n"
+            f"💵 Amount: ${amount}\n"
+            f"💳 Network: {network}"
+        )
+        try:
+            bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+        except Exception as e:
+            print(f"Error sending to admin: {e}")
+
+        # Nadiifi step-ka qofka
+        user_step.pop(uid, None)
+        return
 
     text = message.text
 
@@ -230,7 +292,10 @@ def process_message_thread(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("net_"))
 def callback_network(call):
     network = call.data.split("_")[1]
-    user_step[str(call.from_user.id)] = {"network": network}
+    uid = str(call.from_user.id)
+    if uid not in user_step:
+        user_step[uid] = {}
+    user_step[uid]["network"] = network
     bot.answer_callback_query(call.id)
 
     kb = types.InlineKeyboardMarkup(row_width=2)
@@ -265,7 +330,7 @@ def callback_plan(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=f"📌 *Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Send exact funds to this wallet:*\n`{wallet_address}`\n\n*Terms:* After transferring from your real wallet, click the button below to submit your payment for approval.",
+        text=f"📌 *Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Send exact funds to this wallet:*\n`{wallet_address}`\n\n*Terms:* After transferring from your real wallet, click the button below to proceed.",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -273,48 +338,20 @@ def callback_plan(call):
 @bot.callback_query_handler(func=lambda call: call.data == "confirm_pay")
 def callback_confirm(call):
     uid = str(call.from_user.id)
-    user_name = call.from_user.first_name
+    bot.answer_callback_query(call.id)
 
     if uid not in user_step or "amount" not in user_step[uid]:
-        amount = 50
-        network = "TRC20"
-    else:
-        amount = user_step[uid]["amount"]
-        network = user_step[uid].get("network", "TRC20")
+        user_step[uid] = {"amount": 50, "network": "TRC20"}
 
-    data = load()
-    if uid not in data:
-        register(call.from_user)
-        data = load()
-
-    data[uid]["history"].append({
-        "amount": amount,
-        "network": network,
-        "status": "Pending ⏳"
-    })
-    data[uid]["status"] = "Pending ⏳"
-    save(data)
-
-    bot.answer_callback_query(call.id, "Payment submitted! Waiting for Admin approval.")
+    # U beddel xaaladda qofka mid sugaysa screenshot
+    user_step[uid]["state"] = "waiting_for_screenshot"
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=f"⏳ *Payment Submitted (Pending)*\n\n💳 Network: {network}\n💵 Amount: ${amount}\n📊 Status: *Waiting for Admin Approval...* 🕒",
+        text="📸 *Fadlan soo dir Screenshot-ka* (Sawirka caddaynaya in aad lacagta bixisay) adigoo chat-kan soo gelinaya.",
         parse_mode="Markdown"
     )
-
-    admin_kb = types.InlineKeyboardMarkup(row_width=2)
-    admin_kb.add(
-        types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
-        types.InlineKeyboardButton("❌ Cancel", callback_data=f"adm_can_{uid}")
-    )
-
-    admin_text = f"🔔 *NEW DEPOSIT REQUEST*\n\n👤 User Name: {user_name}\n🆔 User ID: `{uid}`\n💵 Amount: ${amount}\n💳 Network: {network}"
-    try:
-        bot.send_message(int(ADMIN_ID), admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-    except Exception as e:
-        print(f"Error sending to admin: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_actions(call):
@@ -343,18 +380,22 @@ def admin_actions(call):
         save(data)
 
         bot.answer_callback_query(call.id, "Deposit Approved Successfully!")
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"{call.message.text}\n\n✅ *Status: APPROVED BY ADMIN*",
-            parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption=f"{call.message.caption}\n\n✅ *Status: APPROVED SUCCESSFULLY BY ADMIN*",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
         try:
             bot.send_message(
                 int(uid),
-                f"✅ *Your Deposit of ${amount} has been Approved by Admin!* 🚀\n\nCapital & Profits are locked for 7 days. Daily profit (20%) has started generating!",
-                parse_mode="Markdown"
+                f"🎉 *Successfully Approved!*\n\nYour deposit of ${amount} has been verified and approved by Admin. Your balance and active deposit have been updated! 🚀",
+                parse_mode="Markdown",
+                reply_markup=main_reply_menu()
             )
         except Exception:
             pass
@@ -366,18 +407,22 @@ def admin_actions(call):
         save(data)
 
         bot.answer_callback_query(call.id, "Deposit Cancelled!")
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"{call.message.text}\n\n❌ *Status: CANCELLED BY ADMIN*",
-            parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption=f"{call.message.caption}\n\n❌ *Status: CANCELLED BY ADMIN*",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
         try:
             bot.send_message(
                 int(uid),
                 "❌ *Your Deposit request was cancelled/invalid by Admin.* Please contact support or try again.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=main_reply_menu()
             )
         except Exception:
             pass
