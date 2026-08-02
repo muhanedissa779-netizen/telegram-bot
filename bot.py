@@ -11,6 +11,8 @@ import threading
 TOKEN = os.getenv("BOT_TOKEN", "8980381844:AAHc1vbXremFwY2pNHhbAZ3cqETk0w3qaEQ")
 ADMIN_ID = "5738022147"
 
+print(f"Starting Global Trust VIP Bot with Admin ID: {ADMIN_ID}")
+
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
 
@@ -33,7 +35,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running and active 24/7!"
+    return "Global Trust VIP Bot is running and active 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -120,7 +122,7 @@ def handle_start_background(message):
     add_profit(uid)
 
     text = (
-        "🏦 *Welcome to DailyRewardsVIP*\n\n"
+        "🏦 *Welcome to Global Trust VIP*\n\n"
         f"👋 Hello {message.from_user.first_name}\n\n"
         "💎 Official Investment & Mining Platform\n"
         "📌 *Terms:* Deposits & Profits are locked for 7 days before withdrawal becomes available. Daily Profit: 20%.\n\n"
@@ -170,7 +172,7 @@ def process_message_thread(message):
                 reply_markup=main_reply_menu()
             )
 
-            # Professional admin control panel with clear warning regarding fake/invalid receipts
+            # Professional admin control panel
             admin_kb = types.InlineKeyboardMarkup(row_width=2)
             admin_kb.add(
                 types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
@@ -186,10 +188,13 @@ def process_message_thread(message):
                 f"💳 Network: {network}\n\n"
                 f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
+            
+            # Hubinta dirista fariinta admin-ka iyo soo bandhigida qaladka haddii uu jiro
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+                print(f"Success: Deposit receipt sent to Admin ({ADMIN_ID}) for user {uid}")
             except Exception as e:
-                print(f"Error sending to admin: {e}")
+                print(f"CRITICAL ERROR sending deposit to admin: {e}")
 
             user_step.pop(uid, None)
             return
@@ -337,7 +342,6 @@ def callback_confirm(call):
     if uid not in user_step or "amount" not in user_step[uid]:
         user_step[uid] = {"amount": 50, "network": "TRC20"}
 
-    # Strictly lock user to screenshot upload state only
     user_step[uid]["state"] = "waiting_for_screenshot"
 
     bot.edit_message_text(
@@ -424,7 +428,6 @@ def admin_actions(call):
             pass
 
 if __name__ == "__main__":
-    # Start Flask server in a background thread so it satisfies Render Web Service port requirements
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
