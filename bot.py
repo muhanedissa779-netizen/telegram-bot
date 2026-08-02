@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
 import threading
 
-TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
-ADMIN_ID = 5738022147
+# Token-ka cusub iyo Admin ID-gaaga
+TOKEN = os.getenv("BOT_TOKEN", "8980381844:AAHc1vbXremFwY2pNHhbAZ3cqETk0w3qaEQ")
+ADMIN_ID = "5738022147"
 
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
@@ -83,14 +84,11 @@ def add_profit(uid):
     data = load()
     if uid in data and data[uid]["active_deposit"] > 0:
         now = int(time.time())
-        last_p = data[uid].get("last_profit", now)
-        if now - last_p >= 3600:
-            hours_passed = (now - last_p) // 3600
-            hourly_rate = 0.20 / 24.0
-            increment = data[uid]["active_deposit"] * hourly_rate * hours_passed
-            data[uid]["balance"] += increment
-            data[uid]["profit"] += increment
-            data[uid]["last_profit"] = now - ((now - last_p) % 3600)
+        if now - data[uid].get("last_profit", now) >= 86400:
+            daily_profit = data[uid]["active_deposit"] * 0.20
+            data[uid]["balance"] += daily_profit
+            data[uid]["profit"] += daily_profit
+            data[uid]["last_profit"] = now
             save(data)
 
 def main_reply_menu():
@@ -120,13 +118,12 @@ def handle_start_background(message):
     uid = str(message.from_user.id)
     register(message.from_user)
     add_profit(uid)
-    user_step.pop(uid, None)
 
     text = (
         "🏦 *Welcome to DailyRewardsVIP*\n\n"
         f"👋 Hello {message.from_user.first_name}\n\n"
         "💎 Official Investment & Mining Platform\n"
-        "📌 *Terms:* Deposits & Profits are locked for 7 days before withdrawal becomes available. Profit yields 20% daily, updating automatically every hour.\n\n"
+        "📌 *Terms:* Deposits & Profits are locked for 7 days before withdrawal becomes available. Daily Profit: 20%.\n\n"
         "Choose an option from the menu below:"
     )
     try:
@@ -150,15 +147,7 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    text = message.text if message.text else ""
-
-    if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
-        user_step.pop(uid, None)
-
-    add_profit(uid)
-    data = load()
-
-    # --- WAITING FOR SCREENSHOT CHECK ---
+    # --- STRICT CHECK: WAITING ONLY FOR TRANSACTION SCREENSHOT ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             screenshot = message.photo[-1].file_id
@@ -176,11 +165,12 @@ def process_message_thread(message):
             bot.send_message(
                 message.chat.id,
                 "⏳ *Payment Verification Submitted Successfully!*\n\n"
-                "Your deposit is currently in **Pending** status. Please wait **5 to 10 minutes** while our finance team reviews your transaction receipt.",
+                "Your deposit is now under review. Please wait **10 to 30 minutes** while our finance team verifies your transaction receipt.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
 
+            # Professional admin control panel with clear warning regarding fake/invalid receipts
             admin_kb = types.InlineKeyboardMarkup(row_width=2)
             admin_kb.add(
                 types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
@@ -194,33 +184,24 @@ def process_message_thread(message):
                 f"🆔 Telegram User ID: `{uid}`\n"
                 f"💵 Amount: ${amount}\n"
                 f"💳 Network: {network}\n\n"
-                f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully."
+                f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
-            
-            # Dirista sawirka admin-ka, haddii uu fashilmo waxaa si toos ah loo diraa qoraal
-            sent_successfully = False
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-                sent_successfully = True
             except Exception as e:
-                print(f"Error sending photo to admin: {e}")
-
-            if not sent_successfully:
-                try:
-                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii lama soo dari karin, fadlan xaqiiji xogta isticmaalaha)*", parse_mode="Markdown", reply_markup=admin_kb)
-                except Exception as err:
-                    print(f"Failed to send text fallback to admin: {err}")
+                print(f"Error sending to admin: {e}")
 
             user_step.pop(uid, None)
             return
         else:
             bot.send_message(
                 message.chat.id,
-                "❌ *Invalid Submission!*\n\nYou must upload a valid transaction **Screenshot** image."
+                "❌ *Invalid Submission!*\n\nYou must upload a valid transaction **Screenshot** image. Text, documents, or other media are strictly blocked until a proper receipt is provided."
             )
             return
 
-    # --- MENU ROUTING ---
+    text = message.text
+
     if text == "👤 My Profile":
         user = data[uid]
         lock_status = "Unlocked ✅"
@@ -233,7 +214,7 @@ def process_message_thread(message):
                 lock_status = f"Locked 🔒 ({days_left}d {hours_left}h left)"
 
         txt = (
-            "👤 *USER PROFILE*\n\n"
+            "👤 *PROFILE*\n\n"
             f"🆔 ID: `{uid}`\n"
             f"👤 Name: {user['name']}\n"
             f"💰 Balance: ${user['balance']:.2f}\n"
@@ -249,15 +230,14 @@ def process_message_thread(message):
         kb.add(
             types.InlineKeyboardButton("🟢 USDT TRC20", callback_data="net_TRC20"),
             types.InlineKeyboardButton("🟡 USDT BEP20", callback_data="net_BEP20"),
-            types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20"),
-            types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")
+            types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20")
         )
         bot.send_message(message.chat.id, "💰 *Select Deposit Network below:*", parse_mode="Markdown", reply_markup=kb)
 
     elif text == "📈 Mining":
         bot.send_message(
             message.chat.id,
-            "⛏ *Mining Dashboard*\n\nYour active deposit generates a 20% daily return distributed and updated automatically **every hour**.",
+            "⛏ *Daily Mining Active*\n\nYour active deposit generates 20% daily profit automatically. Locked for 7 days.",
             parse_mode="Markdown",
             reply_markup=main_reply_menu()
         )
@@ -265,55 +245,43 @@ def process_message_thread(message):
     elif text == "💸 Withdraw":
         user = data[uid]
         if user['deposit_time'] == 0:
-            bot.send_message(message.chat.id, "❌ *Withdrawal Notice*\n\nYou currently have no active deposit or balance available for withdrawal.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, "❌ You have no active deposit to withdraw from.", reply_markup=main_reply_menu())
             return
         
         elapsed = int(time.time()) - user['deposit_time']
         if elapsed < (7 * 86400):
             days_left = ((7 * 86400) - elapsed) // 86400
             hours_left = (((7 * 86400) - elapsed) % 86400) // 3600
-            bot.send_message(message.chat.id, f"❌ *Withdrawal Locked!*\n\nTime remaining: *{days_left} days and {hours_left} hours*.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, f"❌ *Withdrawal Locked!*\n\nPer terms and conditions, you cannot withdraw until 7 days are complete. Time remaining: approx *{days_left} days and {hours_left} hours*.", parse_mode="Markdown", reply_markup=main_reply_menu())
         else:
-            bot.send_message(message.chat.id, "💸 *Withdrawal Unlocked*\n\nYour 7-day lock period has successfully completed.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, "💸 Withdrawal system is now unlocked for you! Processing payout...", reply_markup=main_reply_menu())
 
     elif text == "📜 History":
         history = data[uid].get("history", [])
         if not history:
-            bot.send_message(message.chat.id, "📜 *Transaction History*\n\nNo deposit records found.", parse_mode="Markdown", reply_markup=main_reply_menu())
+            bot.send_message(message.chat.id, "📜 No deposit history yet.", reply_markup=main_reply_menu())
         else:
-            hist_text = "📜 *Deposit History Records*\n\n"
+            hist_text = "📜 *Deposit History*\n\n"
             for i in history:
-                hist_text += f"💵 Amount: ${i['amount']} | Network: {i['network']} | Status: *{i['status']}*\n"
+                hist_text += f"💵 ${i['amount']} | Network: {i['network']} | Status: *{i['status']}*\n"
             bot.send_message(message.chat.id, hist_text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "🎁 Referral":
         bot.send_message(
             message.chat.id,
-            "🎁 *Referral Program*\n\nComing Soon!",
+            f"🎁 *Referral System*\n\nInvite Link:\nhttps://t.me/GlobalTrustVIP_bot?start={uid}",
             parse_mode="Markdown",
             reply_markup=main_reply_menu()
         )
 
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Mohaned017087"))
-        support_txt = "🛠 *CUSTOMER SUPPORT*\n\nClick the button below to reach out to our official support administration."
-        bot.send_message(message.chat.id, support_txt, parse_mode="Markdown", reply_markup=kb)
-
-@bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
-def callback_back_menu(call):
-    uid = str(call.from_user.id)
-    user_step.pop(uid, None)
-    bot.answer_callback_query(call.id, "Cancelled.")
-    try:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="❌ *Deposit Cancelled.*\n\nYou have returned to the main menu.",
-            parse_mode="Markdown"
+        kb.add(types.InlineKeyboardButton("💬 Contact Admin", url=f"tg://user?id={ADMIN_ID}"))
+        support_txt = (
+            "🛠 *SUPPORT PANEL*\n\n"
+            "If you have any questions, transaction delays, or issues regarding your account, please click the button below to message the admin directly."
         )
-    except Exception:
-        pass
+        bot.send_message(message.chat.id, support_txt, parse_mode="Markdown", reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("net_"))
 def callback_network(call):
@@ -327,30 +295,10 @@ def callback_network(call):
     kb = types.InlineKeyboardMarkup(row_width=2)
     for amount in INVESTMENT_PLANS:
         kb.add(types.InlineKeyboardButton(f"💵 ${amount} (20% Daily)", callback_data=f"plan_{amount}"))
-    kb.add(types.InlineKeyboardButton("🔙 Back to Networks", callback_data="back_to_networks"))
 
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=f"💰 Network Selected: *{network}*\n\nPlease choose your preferred investment plan amount below:",
-        parse_mode="Markdown",
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda call: call.data == "back_to_networks")
-def callback_back_networks(call):
-    bot.answer_callback_query(call.id)
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("🟢 USDT TRC20", callback_data="net_TRC20"),
-        types.InlineKeyboardButton("🟡 USDT BEP20", callback_data="net_BEP20"),
-        types.InlineKeyboardButton("🔵 USDT ERC20", callback_data="net_ERC20"),
-        types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")
-    )
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text="💰 *Select Deposit Network below:*",
+    bot.send_message(
+        call.message.chat.id,
+        f"💰 Network: *{network}*\n\nPlease select your investment plan ($10 to $100):",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -368,35 +316,15 @@ def callback_plan(call):
     user_step[uid]["amount"] = amount
     network = user_step[uid]["network"]
 
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("✅ Confirm Payment", callback_data="confirm_pay"),
-        types.InlineKeyboardButton("🔙 Back to Plans", callback_data=f"back_to_plans_{network}")
-    )
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("✅ Confirm Payment", callback_data="confirm_pay"))
 
     wallet_address = WALLETS.get(network, WALLETS["TRC20"])
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=f"📌 *Investment Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Deposit Wallet Address:*\n`{wallet_address}`\n\n*Instructions:* After transferring the exact amount, click the button below to submit your payment proof.",
-        parse_mode="Markdown",
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_plans_"))
-def callback_back_plans(call):
-    network = call.data.split("_")[3]
-    bot.answer_callback_query(call.id)
-    kb = types.InlineKeyboardMarkup(row_width=2)
-    for amount in INVESTMENT_PLANS:
-        kb.add(types.InlineKeyboardButton(f"💵 ${amount} (20% Daily)", callback_data=f"plan_{amount}"))
-    kb.add(types.InlineKeyboardButton("🔙 Back to Networks", callback_data="back_to_networks"))
-
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=f"💰 Network Selected: *{network}*\n\nPlease choose your preferred investment plan amount below:",
+        text=f"📌 *Deposit Summary*\n💳 Network: *{network}*\n💵 Amount: *${amount}*\n\n📬 *Send exact funds to this wallet:*\n`{wallet_address}`\n\n*Terms:* After transferring funds from your external wallet, click the button below to submit your payment proof.",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -409,23 +337,20 @@ def callback_confirm(call):
     if uid not in user_step or "amount" not in user_step[uid]:
         user_step[uid] = {"amount": 50, "network": "TRC20"}
 
+    # Strictly lock user to screenshot upload state only
     user_step[uid]["state"] = "waiting_for_screenshot"
-
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 Cancel & Return", callback_data="back_to_menu"))
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="📸 *Payment Verification Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here in the chat.",
-        parse_mode="Markdown",
-        reply_markup=kb
+        text="📸 *Payment Confirmation Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here. Fake, blurry, or unrelated images will be rejected by the administration.",
+        parse_mode="Markdown"
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
 def admin_actions(call):
     if str(call.from_user.id) != str(ADMIN_ID):
-        bot.answer_callback_query(call.id, "❌ Unauthorized Action!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ You are not authorized as Admin!", show_alert=True)
         return
 
     parts = call.data.split("_")
@@ -442,7 +367,6 @@ def admin_actions(call):
         data[uid]["active_deposit"] += amount
         data[uid]["balance"] += amount
         data[uid]["deposit_time"] = int(time.time())
-        data[uid]["last_profit"] = int(time.time())
         data[uid]["status"] = "Approved ✅"
         
         if data[uid]["history"]:
@@ -463,7 +387,9 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                f"🎉 *Deposit Approved Successfully!* 🚀\n\nYour deposit of ${amount} has been verified and processed.",
+                f"🎉 *Deposit Successfully Approved!* 🚀\n\n"
+                f"Your deposit of ${amount} has been verified and approved by the administrator.\n"
+                f"Your balance and active deposit have been successfully updated!",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
@@ -490,7 +416,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                "❌ *Deposit Request Rejected*\n\nYour transaction receipt was flagged as invalid or fake.",
+                "❌ *Your Deposit request was rejected!* \nReason: The uploaded image was identified as fake, blurry, or an invalid transaction receipt. Please make sure to submit a genuine and clear payment screenshot.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
@@ -498,6 +424,7 @@ def admin_actions(call):
             pass
 
 if __name__ == "__main__":
+    # Start Flask server in a background thread so it satisfies Render Web Service port requirements
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
