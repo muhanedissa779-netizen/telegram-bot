@@ -4,6 +4,8 @@ import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from flask import Flask
+import threading
 
 TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
 ADMIN_ID = "5738022147"
@@ -11,7 +13,7 @@ ADMIN_ID = "5738022147"
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
 
-# Pool-kan wuxuu u oggolaanayaa inuu dad badan (tusaale 100 qof) isku mar jawaab u celiyo asagoon istaagin
+# ThreadPool for fast concurrent user responses
 executor = ThreadPoolExecutor(max_workers=50)
 
 BANNER_IMAGE = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=600"
@@ -24,6 +26,18 @@ WALLETS = {
 
 INVESTMENT_PLANS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 user_step = {}
+
+# --- FLASK WEB SERVER FOR RENDER WEB SERVICE PORT BINDING ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running and active 24/7!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+# ------------------------------------------------------------
 
 def load():
     if not os.path.exists(DB) or os.path.getsize(DB) == 0:
@@ -120,7 +134,6 @@ def handle_start_background(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message):
-    # Isticmaalka ThreadPool si uusan qofna u sugin qof kale
     executor.submit(process_message_thread, message)
 
 def process_message_thread(message):
@@ -370,9 +383,14 @@ def admin_actions(call):
             pass
 
 if __name__ == "__main__":
+    # Start Flask server in a background thread so it satisfies Render Web Service port requirements
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
     while True:
         try:
-            print("Bot is running with Multi-threading support 24/7...")
+            print("Bot is running with Multi-threading and Flask Server support 24/7...")
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=20)
         except Exception as e:
             print(f"Error: {e}. Reconnecting...")
