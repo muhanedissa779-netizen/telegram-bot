@@ -138,40 +138,20 @@ def handle_messages(message):
 
 def process_message_thread(message):
     uid = str(message.from_user.id)
+    user_name = message.from_user.first_name
+    username = message.from_user.username or "Not set"
     data = load()
 
     if uid not in data:
         register(message.from_user)
         data = load()
 
-    # --- STRICT CHECK: IF USER IS IN DEPOSIT PAYMENT SCREENSHOT STEP ---
+    # --- STRICT CHECK: WAITING ONLY FOR TRANSACTION SCREENSHOT ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
-            file_id = message.photo[-1].file_id
-            user_step[uid]["screenshot"] = file_id
-            user_step[uid]["state"] = "waiting_for_details"
-            
-            bot.send_message(
-                message.chat.id,
-                "📸 *Screenshot Received Successfully!*\n\n"
-                "Please now send your **Telegram Username** and **User ID** in a single text message (e.g., `@username, 5738022147`) to finalize your submission.",
-                parse_mode="Markdown"
-            )
-            return
-        else:
-            # Reject any non-photo input during this state
-            bot.send_message(
-                message.chat.id,
-                "❌ *Invalid Input!*\n\nYou must upload a valid transaction **Screenshot** (image) to proceed. Text or other files are not allowed at this stage."
-            )
-            return
-
-    elif uid in user_step and user_step[uid].get("state") == "waiting_for_details":
-        if message.content_type == 'text':
-            details = message.text
+            screenshot = message.photo[-1].file_id
             amount = user_step[uid]["amount"]
             network = user_step[uid]["network"]
-            screenshot = user_step[uid].get("screenshot")
 
             data[uid]["history"].append({
                 "amount": amount,
@@ -184,24 +164,26 @@ def process_message_thread(message):
             bot.send_message(
                 message.chat.id,
                 "⏳ *Payment Verification Submitted Successfully!*\n\n"
-                "Your deposit is now under review. Please wait **10 to 30 minutes** while our finance team inspects your transaction receipt.",
+                "Your deposit is now under review. Please wait **10 to 30 minutes** while our finance team verifies your transaction receipt.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
 
+            # Professional admin control panel with clear warning regarding fake/invalid receipts
             admin_kb = types.InlineKeyboardMarkup(row_width=2)
             admin_kb.add(
                 types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
-                types.InlineKeyboardButton("❌ Cancel", callback_data=f"adm_can_{uid}")
+                types.InlineKeyboardButton("❌ Reject (Fake/Invalid)", callback_data=f"adm_can_{uid}")
             )
 
             admin_text = (
                 f"🔔 *NEW DEPOSIT VERIFICATION REQUEST*\n\n"
-                f"👤 User Details: {details}\n"
+                f"👤 Telegram Name: {user_name}\n"
+                f"🔗 Username: @{username}\n"
                 f"🆔 Telegram User ID: `{uid}`\n"
                 f"💵 Amount: ${amount}\n"
                 f"💳 Network: {network}\n\n"
-                f"⚠️ *Admin Note:* Verify if the screenshot is a genuine transaction receipt before approving!"
+                f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
@@ -211,7 +193,10 @@ def process_message_thread(message):
             user_step.pop(uid, None)
             return
         else:
-            bot.send_message(message.chat.id, "❌ Please send your Telegram Username and User ID as a text message.")
+            bot.send_message(
+                message.chat.id,
+                "❌ *Invalid Submission!*\n\nYou must upload a valid transaction **Screenshot** image. Text, documents, or other media are strictly blocked until a proper receipt is provided."
+            )
             return
 
     text = message.text
@@ -351,13 +336,13 @@ def callback_confirm(call):
     if uid not in user_step or "amount" not in user_step[uid]:
         user_step[uid] = {"amount": 50, "network": "TRC20"}
 
-    # Set state to strictly wait for screenshot image
+    # Strictly lock user to screenshot upload state only
     user_step[uid]["state"] = "waiting_for_screenshot"
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="📸 *Payment Confirmation Step*\n\nPlease upload and send the transaction **Screenshot** image right here in the chat. Other messages will be restricted until the receipt is provided.",
+        text="📸 *Payment Confirmation Step*\n\nPlease upload and send a clear **Transaction Screenshot** image right here. Fake, blurry, or unrelated images will be rejected by the administration.",
         parse_mode="Markdown"
     )
 
@@ -416,12 +401,12 @@ def admin_actions(call):
             data[uid]["history"][-1]["status"] = "Cancelled ❌"
         save(data)
 
-        bot.answer_callback_query(call.id, "Deposit Cancelled!")
+        bot.answer_callback_query(call.id, "Deposit Rejected!")
         try:
             bot.edit_message_caption(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                caption=f"{call.message.caption}\n\n❌ *Status: DECLINED / INVALID RECEIPT BY ADMIN*",
+                caption=f"{call.message.caption}\n\n❌ *Status: REJECTED (FAKE/INVALID RECEIPT)*",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -430,7 +415,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                "❌ *Your Deposit request was declined.* \nReason: The transaction screenshot was either invalid, fake, or unverified. Please try again with a legitimate payment receipt.",
+                "❌ *Your Deposit request was rejected!* \nReason: The uploaded image was identified as fake, blurry, or an invalid transaction receipt. Please make sure to submit a genuine and clear payment screenshot.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
