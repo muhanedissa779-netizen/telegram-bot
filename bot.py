@@ -13,6 +13,7 @@ ADMIN_ID = 5738022147
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
 
+# ThreadPool for fast concurrent user responses
 executor = ThreadPoolExecutor(max_workers=50)
 
 BANNER_IMAGE = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=600"
@@ -26,6 +27,7 @@ WALLETS = {
 INVESTMENT_PLANS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 user_step = {}
 
+# --- FLASK WEB SERVER FOR RENDER WEB SERVICE PORT BINDING ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -35,6 +37,7 @@ def home():
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+# ------------------------------------------------------------
 
 def load():
     if not os.path.exists(DB) or os.path.getsize(DB) == 0:
@@ -194,19 +197,19 @@ def process_message_thread(message):
                 f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully."
             )
             
-            # Dirista fariinta adigoo hubinaya laba qaab (Sawir ama Qoraal haddii sawirku diido)
-            sent_to_admin = False
+            # Dirista sawirka admin-ka, haddii uu fashilmo waxaa si toos ah loo diraa qoraal
+            sent_successfully = False
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-                sent_to_admin = True
+                sent_successfully = True
             except Exception as e:
                 print(f"Error sending photo to admin: {e}")
 
-            if not sent_to_admin:
+            if not sent_successfully:
                 try:
-                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii lama soo dari karin, fadlan xaqiiji isticmaalaha)*", parse_mode="Markdown", reply_markup=admin_kb)
+                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii lama soo dari karin, fadlan xaqiiji xogta isticmaalaha)*", parse_mode="Markdown", reply_markup=admin_kb)
                 except Exception as err:
-                    print(f"Failed to send fallback text to admin: {err}")
+                    print(f"Failed to send text fallback to admin: {err}")
 
             user_step.pop(uid, None)
             return
