@@ -62,7 +62,7 @@ def save(data):
     except Exception:
         pass
 
-def register(user):
+def register(user, referrer_id=None):
     data = load()
     uid = str(user.id)
     if uid not in data:
@@ -75,8 +75,17 @@ def register(user):
             "history": [],
             "deposit_time": 0,
             "last_profit": int(time.time()),
-            "status": "No Deposit"
+            "status": "No Deposit",
+            "referrals_count": 0,
+            "referred_by": referrer_id
         }
+        
+        # Haddii uu isticmaale cusub ku yimid linkiga qof kale, u diiwaangeli
+        if referrer_id and referrer_id in data and referrer_id != uid:
+            data[referrer_id]["referrals_count"] += data[referrer_id].get("referrals_count", 0) + 1
+            # Halkan waxaad ku dari kartaa bonus haddii aad rabto (tusaale: $1)
+            data[referrer_id]["balance"] += 0.50 
+
         save(data)
 
 def add_profit(uid):
@@ -118,7 +127,12 @@ def start(message):
 
 def handle_start_background(message):
     uid = str(message.from_user.id)
-    register(message.from_user)
+    
+    # Hubinta haddii uu isticmaaluhu ku yimid referral link (tusaale: /start 12345678)
+    args = message.text.split()
+    referrer_id = args[1] if len(args) > 1 else None
+
+    register(message.from_user, referrer_id)
     add_profit(uid)
 
     # Clear any stuck user step when user types /start
@@ -138,6 +152,34 @@ def handle_start_background(message):
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
+# --- ADMIN BROADCAST COMMAND (/broadcast Fariintaada) ---
+@bot.message_handler(commands=["broadcast"])
+def broadcast_message(message):
+    if str(message.from_user.id) != str(ADMIN_ID):
+        return
+    
+    text_parts = message.text.split(maxsplit=1)
+    if len(text_parts) < 2:
+        bot.reply_to(message, "⚠️ Fadlan soo raaci fariinta aad rabto inaad dirto. Tusaale:\n`/broadcast Salaan dhammaan...`", parse_mode="Markdown")
+        return
+    
+    broadcast_text = text_parts[1]
+    data = load()
+    success_count = 0
+    fail_count = 0
+
+    bot.reply_to(message, "⏳ Waxaa socda dirista fariinta...")
+
+    for uid in data:
+        try:
+            bot.send_message(int(uid), f"📢 *Ogeysiis Maamulka*\n\n{broadcast_text}", parse_mode="Markdown")
+            success_count += 1
+            time.sleep(0.1) # Si aanu Telegram-ku u xidhin bot-ka (Flood control)
+        except Exception:
+            fail_count += 1
+
+    bot.send_message(message.chat.id, f"✅ *Broadcast waa la dhammeeyay!*\n\n• Si guul leh ay u gaadhay: `{success_count}`\n• Way ku guuldareysatay: `{fail_count}`", parse_mode="Markdown")
+
 @bot.message_handler(content_types=['photo', 'text', 'document', 'video', 'audio', 'sticker'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
@@ -152,7 +194,7 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    text = message.text
+    text = message.text if message.text else ""
 
     # If user clicks any main menu button, clear active deposit step so they don't get trapped
     if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
@@ -234,6 +276,7 @@ def process_message_thread(message):
             f"💵 Active Deposit: ${user['active_deposit']:.2f}\n"
             f"📈 Total Profit: ${user['profit']:.2f}\n"
             f"⏳ Status: {user['status']}\n"
+            f"👥 Referrals: {user.get('referrals_count', 0)} users\n"
             f"🔐 Withdrawal Lock: {lock_status}"
         )
         bot.send_message(message.chat.id, txt, parse_mode="Markdown", reply_markup=main_reply_menu())
@@ -281,12 +324,16 @@ def process_message_thread(message):
             bot.send_message(message.chat.id, hist_text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "🎁 Referral":
-        bot.send_message(
-            message.chat.id,
-            "🎁 *Referral Program*\n\nComing Soon! Stay tuned for our upcoming affiliate rewards system.",
-            parse_mode="Markdown",
-            reply_markup=main_reply_menu()
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+        ref_text = (
+            "🎁 *Referral Program*\n\n"
+            "Invite your friends and grow your network! Share your personal referral link below:\n\n"
+            f"`{ref_link}`\n\n"
+            f"👥 Total Referred Users: *{data[uid].get('referrals_count', 0)}*\n"
+            "Earn bonuses for every active investor who joins through your link!"
         )
+        bot.send_message(message.chat.id, ref_text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
@@ -436,7 +483,6 @@ def admin_actions(call):
 
     if action == "app":
         amount = float(parts[3])
-        # Add to active deposit and accumulate balance permanently without overwriting history
         data[uid]["active_deposit"] += amount
         data[uid]["balance"] += amount
         data[uid]["deposit_time"] = int(time.time())
