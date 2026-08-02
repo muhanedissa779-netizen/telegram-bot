@@ -132,7 +132,7 @@ def handle_start_background(message):
 
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=main_reply_menu())
 
-@bot.message_handler(content_types=['photo', 'text'])
+@bot.message_handler(content_types=['photo', 'text', 'document', 'video', 'audio', 'sticker'])
 def handle_messages(message):
     executor.submit(process_message_thread, message)
 
@@ -144,7 +144,7 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    # Step 1: Waiting for payment screenshot from user
+    # --- STRICT CHECK: IF USER IS IN DEPOSIT PAYMENT SCREENSHOT STEP ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             file_id = message.photo[-1].file_id
@@ -153,61 +153,66 @@ def process_message_thread(message):
             
             bot.send_message(
                 message.chat.id,
-                "📸 *Screenshot Received successfully!*\n\n"
-                "Please now send your **Telegram Name** and **User ID** in a single text message (e.g., `John Doe, 5738022147`) for verification.",
+                "📸 *Screenshot Received Successfully!*\n\n"
+                "Please now send your **Telegram Username** and **User ID** in a single text message (e.g., `@username, 5738022147`) to finalize your submission.",
                 parse_mode="Markdown"
             )
             return
         else:
-            bot.send_message(message.chat.id, "❌ Please upload the payment receipt **Screenshot** as an image.")
+            # Reject any non-photo input during this state
+            bot.send_message(
+                message.chat.id,
+                "❌ *Invalid Input!*\n\nYou must upload a valid transaction **Screenshot** (image) to proceed. Text or other files are not allowed at this stage."
+            )
             return
 
-    # Step 2: Waiting for user details (Name & ID) after screenshot
     elif uid in user_step and user_step[uid].get("state") == "waiting_for_details":
-        details = message.text
-        amount = user_step[uid]["amount"]
-        network = user_step[uid]["network"]
-        screenshot = user_step[uid].get("screenshot")
+        if message.content_type == 'text':
+            details = message.text
+            amount = user_step[uid]["amount"]
+            network = user_step[uid]["network"]
+            screenshot = user_step[uid].get("screenshot")
 
-        # Save history entry with Pending status
-        data[uid]["history"].append({
-            "amount": amount,
-            "network": network,
-            "status": "Pending ⏳"
-        })
-        data[uid]["status"] = "Pending ⏳"
-        save(data)
+            data[uid]["history"].append({
+                "amount": amount,
+                "network": network,
+                "status": "Pending ⏳"
+            })
+            data[uid]["status"] = "Pending ⏳"
+            save(data)
 
-        bot.send_message(
-            message.chat.id,
-            "⏳ *Payment Verification Submitted!*\n\n"
-            "Your transaction is currently **Pending**. Please wait approximately **10 to 30 minutes** while our financial department verifies your transaction.",
-            parse_mode="Markdown",
-            reply_markup=main_reply_menu()
-        )
+            bot.send_message(
+                message.chat.id,
+                "⏳ *Payment Verification Submitted Successfully!*\n\n"
+                "Your deposit is now under review. Please wait **10 to 30 minutes** while our finance team inspects your transaction receipt.",
+                parse_mode="Markdown",
+                reply_markup=main_reply_menu()
+            )
 
-        # Forward professional deposit verification request to Admin
-        admin_kb = types.InlineKeyboardMarkup(row_width=2)
-        admin_kb.add(
-            types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
-            types.InlineKeyboardButton("❌ Cancel", callback_data=f"adm_can_{uid}")
-        )
+            admin_kb = types.InlineKeyboardMarkup(row_width=2)
+            admin_kb.add(
+                types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{uid}_{amount}"),
+                types.InlineKeyboardButton("❌ Cancel", callback_data=f"adm_can_{uid}")
+            )
 
-        admin_text = (
-            f"🔔 *NEW DEPOSIT VERIFICATION REQUEST*\n\n"
-            f"👤 User Provided Details: {details}\n"
-            f"🆔 Telegram User ID: `{uid}`\n"
-            f"💵 Amount: ${amount}\n"
-            f"💳 Network: {network}"
-        )
-        try:
-            bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-        except Exception as e:
-            print(f"Error sending to admin: {e}")
+            admin_text = (
+                f"🔔 *NEW DEPOSIT VERIFICATION REQUEST*\n\n"
+                f"👤 User Details: {details}\n"
+                f"🆔 Telegram User ID: `{uid}`\n"
+                f"💵 Amount: ${amount}\n"
+                f"💳 Network: {network}\n\n"
+                f"⚠️ *Admin Note:* Verify if the screenshot is a genuine transaction receipt before approving!"
+            )
+            try:
+                bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
+            except Exception as e:
+                print(f"Error sending to admin: {e}")
 
-        # Clear temporary user steps
-        user_step.pop(uid, None)
-        return
+            user_step.pop(uid, None)
+            return
+        else:
+            bot.send_message(message.chat.id, "❌ Please send your Telegram Username and User ID as a text message.")
+            return
 
     text = message.text
 
@@ -346,13 +351,13 @@ def callback_confirm(call):
     if uid not in user_step or "amount" not in user_step[uid]:
         user_step[uid] = {"amount": 50, "network": "TRC20"}
 
-    # Set state to wait for screenshot
+    # Set state to strictly wait for screenshot image
     user_step[uid]["state"] = "waiting_for_screenshot"
 
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="📸 *Payment Confirmation Step*\n\nPlease upload and send the **Screenshot** of your transaction receipt right here in the chat.",
+        text="📸 *Payment Confirmation Step*\n\nPlease upload and send the transaction **Screenshot** image right here in the chat. Other messages will be restricted until the receipt is provided.",
         parse_mode="Markdown"
     )
 
@@ -416,7 +421,7 @@ def admin_actions(call):
             bot.edit_message_caption(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                caption=f"{call.message.caption}\n\n❌ *Status: CANCELLED BY ADMIN*",
+                caption=f"{call.message.caption}\n\n❌ *Status: DECLINED / INVALID RECEIPT BY ADMIN*",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -425,7 +430,7 @@ def admin_actions(call):
         try:
             bot.send_message(
                 int(uid),
-                "❌ *Your Deposit request was declined or marked invalid by Admin.* Please contact support or try again.",
+                "❌ *Your Deposit request was declined.* \nReason: The transaction screenshot was either invalid, fake, or unverified. Please try again with a legitimate payment receipt.",
                 parse_mode="Markdown",
                 reply_markup=main_reply_menu()
             )
