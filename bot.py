@@ -8,7 +8,7 @@ from flask import Flask
 import threading
 
 TOKEN = "8910375655:AAFqjpzn21RoficAFnR70Aut9nRI35MyKN4"
-ADMIN_ID = 5738022147  # Telegram ID-gaaga saxda ah
+ADMIN_ID = 5738022147
 
 bot = telebot.TeleBot(TOKEN)
 DB = "vip_users_admin_v1.json"
@@ -86,7 +86,7 @@ def add_profit(uid):
         last_p = data[uid].get("last_profit", now)
         if now - last_p >= 3600:
             hours_passed = (now - last_p) // 3600
-            hourly_rate = 0.20 / 24.0  # Hourly share of the 20% daily return
+            hourly_rate = 0.20 / 24.0
             increment = data[uid]["active_deposit"] * hourly_rate * hours_passed
             data[uid]["balance"] += increment
             data[uid]["profit"] += increment
@@ -120,7 +120,6 @@ def handle_start_background(message):
     uid = str(message.from_user.id)
     register(message.from_user)
     add_profit(uid)
-
     user_step.pop(uid, None)
 
     text = (
@@ -151,7 +150,7 @@ def process_message_thread(message):
         register(message.from_user)
         data = load()
 
-    text = message.text
+    text = message.text if message.text else ""
 
     if text in ["👤 My Profile", "💰 Deposit", "📈 Mining", "💸 Withdraw", "📜 History", "🎁 Referral", "🛠 Support"]:
         user_step.pop(uid, None)
@@ -159,7 +158,7 @@ def process_message_thread(message):
     add_profit(uid)
     data = load()
 
-    # --- WAITING FOR TRANSACTION SCREENSHOT ---
+    # --- WAITING FOR SCREENSHOT CHECK ---
     if uid in user_step and user_step[uid].get("state") == "waiting_for_screenshot":
         if message.content_type == 'photo':
             screenshot = message.photo[-1].file_id
@@ -197,11 +196,18 @@ def process_message_thread(message):
                 f"💳 Network: {network}\n\n"
                 f"⚠️ *Strict Admin Warning:* Inspect the attached receipt carefully. If it is blurry, fake, or unrelated to a real transaction, click *Reject* immediately."
             )
+            
+            # Dirista fariinta admin-ka oo loo hubiyay qaab sugan
             try:
                 bot.send_photo(int(ADMIN_ID), screenshot, caption=admin_text, parse_mode="Markdown", reply_markup=admin_kb)
-                print("Successfully sent deposit screenshot to admin!")
+                print("Deposit receipt successfully sent to admin.")
             except Exception as e:
-                print(f"CRITICAL ERROR: Failed to send screenshot to admin ID {ADMIN_ID}: {e}")
+                print(f"Error sending photo to admin: {e}")
+                # Haddii sawirku diido, wuxuu isku dayayaa inuu ugu yaraan fariin qoraal ah soo diro
+                try:
+                    bot.send_message(int(ADMIN_ID), f"{admin_text}\n\n⚠️ *(Sawirkii wuu cilladaysnaa ama lama soo diri karo, fadlan hubi)*", parse_mode="Markdown", reply_markup=admin_kb)
+                except Exception as err:
+                    print(f"Failed to send text fallback to admin: {err}")
 
             user_step.pop(uid, None)
             return
@@ -288,7 +294,6 @@ def process_message_thread(message):
 
     elif text == "🛠 Support":
         kb = types.InlineKeyboardMarkup()
-        # Updated to use your support username directly
         kb.add(types.InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Mohaned017087"))
         support_txt = (
             "🛠 *CUSTOMER SUPPORT*\n\n"
